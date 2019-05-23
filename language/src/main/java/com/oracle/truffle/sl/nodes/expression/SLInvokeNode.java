@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * The Universal Permissive License (UPL), Version 1.0
@@ -38,16 +38,21 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-package com.oracle.truffle.sl.nodes.call;
+package com.oracle.truffle.sl.nodes.expression;
 
 import com.oracle.truffle.api.CompilerAsserts;
 import com.oracle.truffle.api.frame.VirtualFrame;
 import com.oracle.truffle.api.instrumentation.StandardTags;
 import com.oracle.truffle.api.instrumentation.Tag;
+import com.oracle.truffle.api.interop.ArityException;
+import com.oracle.truffle.api.interop.InteropLibrary;
+import com.oracle.truffle.api.interop.UnsupportedMessageException;
+import com.oracle.truffle.api.interop.UnsupportedTypeException;
 import com.oracle.truffle.api.nodes.ExplodeLoop;
 import com.oracle.truffle.api.nodes.NodeInfo;
 import com.oracle.truffle.sl.nodes.SLExpressionNode;
 import com.oracle.truffle.sl.runtime.SLFunction;
+import com.oracle.truffle.sl.runtime.SLUndefinedNameException;
 
 /**
  * The node for function invocation in SL. Since SL has first class functions, the {@link SLFunction
@@ -61,12 +66,12 @@ public final class SLInvokeNode extends SLExpressionNode {
 
     @Child private SLExpressionNode functionNode;
     @Children private final SLExpressionNode[] argumentNodes;
-    @Child private SLDispatchNode dispatchNode;
+    @Child private InteropLibrary library;
 
     public SLInvokeNode(SLExpressionNode functionNode, SLExpressionNode[] argumentNodes) {
         this.functionNode = functionNode;
         this.argumentNodes = argumentNodes;
-        this.dispatchNode = SLDispatchNodeGen.create();
+        this.library = InteropLibrary.getFactory().createDispatched(3);
     }
 
     @ExplodeLoop
@@ -86,7 +91,13 @@ public final class SLInvokeNode extends SLExpressionNode {
         for (int i = 0; i < argumentNodes.length; i++) {
             argumentValues[i] = argumentNodes[i].executeGeneric(frame);
         }
-        return dispatchNode.executeDispatch(function, argumentValues);
+
+        try {
+            return library.execute(function, argumentValues);
+        } catch (ArityException | UnsupportedTypeException | UnsupportedMessageException e) {
+            /* Execute was not successful. */
+            throw SLUndefinedNameException.undefinedFunction(this, function);
+        }
     }
 
     @Override
